@@ -1,10 +1,15 @@
 {
-  "name": "yt-hide-watched",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "private": true
+  "manifest_version": 3,
+  "name": "YouTube - Hide Watched",
+  "version": "0.1.0",
+  "description": "Toggle pour masquer les vidéos déjà vues sur YouTube",
+  "permissions": ["storage"],
+  "host_permissions": ["https://www.youtube.com/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
 }
