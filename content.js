@@ -1,8 +1,11 @@
 const STORAGE_KEY = "yt_hide_watched_enabled";
 const TOPBAR_BTN_ID = "yt-hide-watched-pill-btn";
+
 const HIDE_CLASS = "yt-hide-watched__hidden";
 const DIM_CLASS = "yt-hide-watched__dim";
 const BADGE_CLASS = "yt-hide-watched__badge";
+
+const DEFAULT_THRESHOLD = 0.8;
 
 const CARD_CONTAINERS = [
     "ytd-rich-item-renderer",      // Home grid items
@@ -60,12 +63,11 @@ function buildPillButton(enabled) {
         const next = !(await getEnabled());
         await setEnabled(next);
         updatePillButton(next);
-        applyHide(next);
+        applyMode(next, DEFAULT_THRESHOLD);
     });
 
     return btn;
 }
-
 
 
 function updatePillButton(enabled) {
@@ -78,7 +80,6 @@ function updatePillButton(enabled) {
     btn.classList.toggle("yt-spec-button-shape-next--filled", enabled);
     btn.classList.toggle("yt-spec-button-shape-next--tonal", !enabled);
 }
-
 
 
 async function ensurePillButton(enabled) {
@@ -132,11 +133,11 @@ function removeBadge(targetCard) {
     if (badge) badge.remove();
 }
 
-function applyMode(enabled) {
+function applyMode(enabled, threshold = DEFAULT_THRESHOLD) {
     const containers = document.querySelectorAll(CARD_CONTAINERS);
 
     containers.forEach((container) => {
-        const watched = isWatchedWithin(container);
+        const watched = isWatchedWithin(container, threshold);
         const target = getBestHideTarget(container);
 
         if (!(target instanceof HTMLElement)) return;
@@ -213,15 +214,93 @@ function setEnabled(value) {
     });
 }
 
+function isWatchedWithin(container, threshold = DEFAULT_THRESHOLD) {
+    const progress = getWatchProgress(container);
+    if (progress !== null) return progress >= threshold;
 
-function isWatchedWithin(container) {
-    if (container.querySelector("ytd-thumbnail-overlay-resume-playback-renderer")) return true;
-    if (container.querySelector("yt-thumbnail-overlay-progress-bar-view-model")) return true;
+    return Boolean(
+        container.querySelector("ytd-thumbnail-overlay-resume-playback-renderer") ||
+        container.querySelector("yt-thumbnail-overlay-progress-bar-view-model") ||
+        container.querySelector("#progress")
+    );
+}
 
-    const progressEl = container.querySelector("#progress");
-    return !!progressEl;
+function getWatchProgress(container) {
+    const directProgressEl =
+        container.querySelector("ytd-thumbnail-overlay-resume-playback-renderer #progress") ||
+        container.querySelector("#progress");
+    const fromDirect = extractProgressFromElement(directProgressEl);
+    if (fromDirect !== null) return fromDirect;
 
+    const progressBarRole = container.querySelector("[role='progressbar'][aria-valuenow]");
+    const fromAria = extractProgressFromAria(progressBarRole);
+    if (fromAria !== null) return fromAria;
 
+    const viewModel = container.querySelector("yt-thumbnail-overlay-progress-bar-view-model");
+    const fromViewModel = extractProgressFromElement(viewModel);
+    if (fromViewModel !== null) return fromViewModel;
+
+    return null;
+}
+
+function extractProgressFromAria(el) {
+    if (!el) return null;
+
+    const min = parseFloat(el.getAttribute("aria-valuemin") || "0");
+    const max = parseFloat(el.getAttribute("aria-valuemax") || "100");
+    const now = parseFloat(el.getAttribute("aria-valuenow") || "0");
+    const range = max - min;
+
+    if (!Number.isFinite(range) || range <= 0) return null;
+
+    const normalized = (now - min) / range;
+    return clamp01(normalized);
+}
+
+function extractProgressFromElement(el) {
+    if (!el) return null;
+
+    const computed = getComputedStyle(el);
+    const transform = el.style.transform || computed.transform;
+    const scale = parseScaleX(transform);
+    if (scale !== null) return scale;
+
+    const widthStyle = el.style.width;
+    const widthMatch = widthStyle && widthStyle.match(/([\d.]+)%/);
+    if (widthMatch) {
+        const pct = parseFloat(widthMatch[1]) / 100;
+        const clamped = clamp01(pct);
+        if (clamped !== null) return clamped;
+    }
+
+    if (el.parentElement) {
+        const total = el.parentElement.getBoundingClientRect().width;
+        if (total > 0) {
+            const value = el.getBoundingClientRect().width / total;
+            const clamped = clamp01(value);
+            if (clamped !== null) return clamped;
+        }
+    }
+
+    return null;
+}
+
+function parseScaleX(transform) {
+    if (!transform || transform === "none") return null;
+
+    const scaleMatch = transform.match(/scaleX\(([-\d.]+)\)/);
+    if (scaleMatch) return clamp01(parseFloat(scaleMatch[1]));
+
+    const matrixMatch = transform.match(/matrix\(([-\d.]+),/);
+    if (matrixMatch) return clamp01(parseFloat(matrixMatch[1]));
+
+    return null;
+}
+
+function clamp01(num) {
+    const n = Number(num);
+    if (!Number.isFinite(n)) return null;
+    return Math.min(1, Math.max(0, n));
 }
 
 function getBestHideTarget(container) {
@@ -242,12 +321,12 @@ async function boot() {
 
     const enabled = await getEnabled();
     await ensurePillButton(enabled);
-    applyMode(enabled);
+    applyMode(enabled, DEFAULT_THRESHOLD);
 
     const debounced = debounce(async () => {
         const e = await getEnabled();
         await ensurePillButton(e);
-        applyMode(e);
+        applyMode(e, DEFAULT_THRESHOLD);
     }, 300);
 
     const obs = new MutationObserver(() => debounced());
