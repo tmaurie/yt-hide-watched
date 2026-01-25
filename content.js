@@ -1,11 +1,14 @@
 const STORAGE_KEY = "yt_hide_watched_enabled";
+const THRESHOLD_STORAGE_KEY = "yt_hide_watched_threshold";
+
 const TOPBAR_BTN_ID = "yt-hide-watched-pill-btn";
 
 const HIDE_CLASS = "yt-hide-watched__hidden";
 const DIM_CLASS = "yt-hide-watched__dim";
 const BADGE_CLASS = "yt-hide-watched__badge";
 
-const DEFAULT_THRESHOLD = 0.8;
+const THRESHOLDS = [0.8, 0.9, 0.95];
+const DEFAULT_THRESHOLD = THRESHOLDS[0];
 
 const CARD_CONTAINERS = [
     "ytd-rich-item-renderer",      // Home grid items
@@ -63,7 +66,8 @@ function buildPillButton(enabled) {
         const next = !(await getEnabled());
         await setEnabled(next);
         updatePillButton(next);
-        applyMode(next, DEFAULT_THRESHOLD);
+        const threshold = await getThreshold();
+        applyMode(next, threshold);
     });
 
     return btn;
@@ -214,6 +218,16 @@ function setEnabled(value) {
     });
 }
 
+function getThreshold() {
+    return new Promise((resolve) => {
+        chrome.storage.sync.get([THRESHOLD_STORAGE_KEY], (res) => {
+            const stored = parseFloat(res[THRESHOLD_STORAGE_KEY]);
+            const value = Number.isFinite(stored) ? stored : DEFAULT_THRESHOLD;
+            resolve(THRESHOLDS.includes(value) ? value : DEFAULT_THRESHOLD);
+        });
+    });
+}
+
 function isWatchedWithin(container, threshold = DEFAULT_THRESHOLD) {
     const progress = getWatchProgress(container);
     if (progress !== null) return progress >= threshold;
@@ -319,14 +333,14 @@ function debounce(fn, delay = 250) {
 async function boot() {
     ensureStyles();
 
-    const enabled = await getEnabled();
+    const [enabled, threshold] = await Promise.all([getEnabled(), getThreshold()]);
     await ensurePillButton(enabled);
-    applyMode(enabled, DEFAULT_THRESHOLD);
+    applyMode(enabled, threshold);
 
     const debounced = debounce(async () => {
-        const e = await getEnabled();
+        const [e, t] = await Promise.all([getEnabled(), getThreshold()]);
         await ensurePillButton(e);
-        applyMode(e, DEFAULT_THRESHOLD);
+        applyMode(e, t);
     }, 300);
 
     const obs = new MutationObserver(() => debounced());

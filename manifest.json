@@ -5,6 +5,10 @@
   "description": "Toggle pour masquer les vidéos déjà vues sur YouTube",
   "permissions": ["storage"],
   "host_permissions": ["https://www.youtube.com/*"],
+  "action": {
+    "default_title": "YouTube - Hide Watched",
+    "default_popup": "popup.html"
+  },
   "content_scripts": [
     {
       "matches": ["https://www.youtube.com/*"],

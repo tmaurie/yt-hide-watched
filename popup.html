@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>YouTube - Hide Watched</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="panel">
+      <header class="panel__header">
+        <h1 class="panel__title">YouTube - Hide Watched</h1>
+        <p class="panel__subtitle">Administration rapide</p>
+      </header>
+
+      <section class="panel__section">
+        <label class="row">
+          <span class="row__label">Masquer les vues</span>
+          <span class="toggle">
+            <input id="toggle-enabled" type="checkbox" />
+            <span class="toggle__track" aria-hidden="true"></span>
+          </span>
+        </label>
+      </section>
+
+      <section class="panel__section">
+        <label class="row row--stack" for="select-threshold">
+          <span class="row__label">Seuil de masquage</span>
+          <select id="select-threshold" class="select">
+            <option value="0.8">80%</option>
+            <option value="0.9">90%</option>
+            <option value="0.95">95%</option>
+          </select>
+        </label>
+        <p class="hint">Cache seulement si la barre rouge depasse le seuil.</p>
+      </section>
+    </main>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
