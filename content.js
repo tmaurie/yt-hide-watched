@@ -7,8 +7,7 @@ const HIDE_CLASS = "yt-hide-watched__hidden";
 const DIM_CLASS = "yt-hide-watched__dim";
 const BADGE_CLASS = "yt-hide-watched__badge";
 
-const THRESHOLDS = [0.8, 0.9, 0.95];
-const DEFAULT_THRESHOLD = THRESHOLDS[0];
+const DEFAULT_THRESHOLD = 0.8;
 
 const CARD_CONTAINERS = [
     "ytd-rich-item-renderer",      // Home grid items
@@ -223,7 +222,7 @@ function getThreshold() {
         chrome.storage.sync.get([THRESHOLD_STORAGE_KEY], (res) => {
             const stored = parseFloat(res[THRESHOLD_STORAGE_KEY]);
             const value = Number.isFinite(stored) ? stored : DEFAULT_THRESHOLD;
-            resolve(THRESHOLDS.includes(value) ? value : DEFAULT_THRESHOLD);
+            resolve(clamp01(value) ?? DEFAULT_THRESHOLD);
         });
     });
 }

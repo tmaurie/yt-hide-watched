@@ -3,7 +3,8 @@ const THRESHOLD_STORAGE_KEY = "yt_hide_watched_threshold";
 const DEFAULT_THRESHOLD = 0.8;
 
 const toggle = document.getElementById("toggle-enabled");
-const select = document.getElementById("select-threshold");
+const slider = document.getElementById("threshold-slider");
+const sliderValue = document.getElementById("threshold-value");
 
 function getStoredSettings() {
   return new Promise((resolve) => {
@@ -31,13 +32,18 @@ function setThreshold(value) {
 function normalizeThreshold(value) {
   const parsed = parseFloat(value);
   if (!Number.isFinite(parsed)) return DEFAULT_THRESHOLD;
-  return parsed;
+  return Math.min(1, Math.max(0, parsed));
+}
+
+function formatPercent(value) {
+  return `${Math.round(value * 100)}%`;
 }
 
 async function init() {
   const { enabled, threshold } = await getStoredSettings();
   toggle.checked = enabled;
-  select.value = String(threshold);
+  slider.value = String(threshold);
+  sliderValue.textContent = formatPercent(threshold);
 }
 
 toggle.addEventListener("change", async (event) => {
@@ -45,9 +51,16 @@ toggle.addEventListener("change", async (event) => {
   await setEnabled(checked);
 });
 
-select.addEventListener("change", async (event) => {
+slider.addEventListener("input", (event) => {
   const next = normalizeThreshold(event.target.value);
-  select.value = String(next);
+  slider.value = String(next);
+  sliderValue.textContent = formatPercent(next);
+});
+
+slider.addEventListener("change", async (event) => {
+  const next = normalizeThreshold(event.target.value);
+  slider.value = String(next);
+  sliderValue.textContent = formatPercent(next);
   await setThreshold(next);
 });
 

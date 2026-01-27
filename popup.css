@@ -75,6 +75,21 @@ body {
   font-size: 13px;
 }
 
+.slider {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.slider__value {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #f1ebe2;
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .hint {
   margin: 8px 0 0 0;
   font-size: 11px;
