@@ -1,5 +1,6 @@
 const STORAGE_KEY = "yt_hide_watched_enabled";
 const THRESHOLD_STORAGE_KEY = "yt_hide_watched_threshold";
+const GRID_SIZE_STORAGE_KEY = "yt_hide_watched_grid_size";
 
 const TOPBAR_BTN_ID = "yt-hide-watched-pill-btn";
 
@@ -8,6 +9,7 @@ const DIM_CLASS = "yt-hide-watched__dim";
 const BADGE_CLASS = "yt-hide-watched__badge";
 
 const DEFAULT_THRESHOLD = 0.8;
+const DEFAULT_GRID_SIZE = 4;
 
 const CARD_CONTAINERS = [
     "ytd-rich-item-renderer",      // Home grid items
@@ -206,6 +208,32 @@ function ensureStyles() {
   `;
     document.documentElement.appendChild(style);
 }
+
+function applyGridSize(size = DEFAULT_GRID_SIZE) {
+    const clamped = Math.min(8, Math.max(4, Number(size) || DEFAULT_GRID_SIZE));
+    let style = document.getElementById("yt-hide-watched-grid-style");
+    if (!style) {
+        style = document.createElement("style");
+        style.id = "yt-hide-watched-grid-style";
+        document.documentElement.appendChild(style);
+    }
+
+    style.textContent = `
+    ytd-rich-grid-renderer {
+      --ytd-rich-grid-items-per-row: ${clamped} !important;
+      --ytd-rich-grid-slim-items-per-row: ${clamped} !important;
+    }
+    ytd-rich-grid-renderer #contents {
+      grid-template-columns: repeat(${clamped}, minmax(0, 1fr)) !important;
+    }
+    ytd-rich-grid-row,
+    ytd-rich-grid-renderer #contents ytd-rich-grid-row {
+      grid-template-columns: repeat(${clamped}, minmax(0, 1fr)) !important;
+      display: contents !important;
+    }
+  `;
+}
+
 function getEnabled() {
     return new Promise((resolve) => {
         chrome.storage.sync.get([STORAGE_KEY], (res) => resolve(Boolean(res[STORAGE_KEY])));
@@ -223,6 +251,16 @@ function getThreshold() {
             const stored = parseFloat(res[THRESHOLD_STORAGE_KEY]);
             const value = Number.isFinite(stored) ? stored : DEFAULT_THRESHOLD;
             resolve(clamp01(value) ?? DEFAULT_THRESHOLD);
+        });
+    });
+}
+
+function getGridSize() {
+    return new Promise((resolve) => {
+        chrome.storage.sync.get([GRID_SIZE_STORAGE_KEY], (res) => {
+            const stored = parseInt(res[GRID_SIZE_STORAGE_KEY], 10);
+            const value = Number.isFinite(stored) ? stored : DEFAULT_GRID_SIZE;
+            resolve(Math.min(8, Math.max(4, value)));
         });
     });
 }
@@ -286,15 +324,6 @@ function extractProgressFromElement(el) {
         if (clamped !== null) return clamped;
     }
 
-    if (el.parentElement) {
-        const total = el.parentElement.getBoundingClientRect().width;
-        if (total > 0) {
-            const value = el.getBoundingClientRect().width / total;
-            const clamped = clamp01(value);
-            if (clamped !== null) return clamped;
-        }
-    }
-
     return null;
 }
 
@@ -332,14 +361,20 @@ function debounce(fn, delay = 250) {
 async function boot() {
     ensureStyles();
 
-    const [enabled, threshold] = await Promise.all([getEnabled(), getThreshold()]);
+    const [enabled, threshold, gridSize] = await Promise.all([
+        getEnabled(),
+        getThreshold(),
+        getGridSize()
+    ]);
     await ensurePillButton(enabled);
     applyMode(enabled, threshold);
+    applyGridSize(gridSize);
 
     const debounced = debounce(async () => {
-        const [e, t] = await Promise.all([getEnabled(), getThreshold()]);
+        const [e, t, g] = await Promise.all([getEnabled(), getThreshold(), getGridSize()]);
         await ensurePillButton(e);
         applyMode(e, t);
+        applyGridSize(g);
     }, 300);
 
     const obs = new MutationObserver(() => debounced());
