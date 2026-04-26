@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YouTube - Hide Watched",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Toggle pour masquer les vidéos déjà vues sur YouTube",
   "permissions": ["storage"],
   "host_permissions": ["https://www.youtube.com/*"],

@@ -1,12 +1,14 @@
 const STORAGE_KEY = "yt_hide_watched_enabled";
 const THRESHOLD_STORAGE_KEY = "yt_hide_watched_threshold";
 const GRID_SIZE_STORAGE_KEY = "yt_hide_watched_grid_size";
+const HIDE_SHORTS_KEY = "yt_hide_watched_hide_shorts";
 
 const TOPBAR_BTN_ID = "yt-hide-watched-pill-btn";
 
 const HIDE_CLASS = "yt-hide-watched__hidden";
 const DIM_CLASS = "yt-hide-watched__dim";
 const BADGE_CLASS = "yt-hide-watched__badge";
+const BUTTON_CLASS = "yt-hide-watched__pill";
 
 const DEFAULT_THRESHOLD = 0.8;
 const DEFAULT_GRID_SIZE = 4;
@@ -49,12 +51,11 @@ function buildPillButton(enabled) {
     btn.id = TOPBAR_BTN_ID;
     btn.type = "button";
 
-    // Classes natives YouTube (pill button)
-    btn.className =
-        "yt-spec-button-shape-next yt-spec-button-shape-next--filled " +
-        "yt-spec-button-shape-next--mono yt-spec-button-shape-next--size-m";
-
-    btn.style.marginRight = "8px";
+    btn.textContent = enabled ? "Vues : cachees" : "Vues : grisees";
+    btn.setAttribute("aria-label", enabled ? "Mode cacher les videos vues" : "Mode griser les videos vues");
+    btn.textContent = enabled ? "Vues : cachees" : "Vues : grisees";
+    btn.setAttribute("aria-label", enabled ? "Mode cacher les videos vues" : "Mode griser les videos vues");
+    btn.className = BUTTON_CLASS;
 
     btn.setAttribute(
         "aria-label",
@@ -63,12 +64,16 @@ function buildPillButton(enabled) {
 
     btn.textContent = enabled ? "Vues masquées" : "Vues visibles";
 
+    btn.textContent = enabled ? "Vues : cachees" : "Vues : grisees";
+    btn.setAttribute("aria-label", enabled ? "Mode cacher les videos vues" : "Mode griser les videos vues");
+    btn.dataset.mode = enabled ? "hide" : "dim";
+
     btn.addEventListener("click", async () => {
         const next = !(await getEnabled());
         await setEnabled(next);
         updatePillButton(next);
-        const threshold = await getThreshold();
-        applyMode(next, threshold);
+        const [threshold, hideShorts] = await Promise.all([getThreshold(), getHideShorts()]);
+        applyMode(next, threshold, hideShorts);
     });
 
     return btn;
@@ -79,11 +84,16 @@ function updatePillButton(enabled) {
     const btn = document.getElementById(TOPBAR_BTN_ID);
     if (!btn) return;
 
+    btn.textContent = enabled ? "Vues : cachees" : "Vues : grisees";
+    btn.setAttribute("aria-label", enabled ? "Mode cacher les videos vues" : "Mode griser les videos vues");
+
     btn.textContent = enabled ? "Vues : cachées" : "Vues : grisées";
     btn.setAttribute("aria-label", enabled ? "Mode cacher les vidéos vues" : "Mode griser les vidéos vues");
 
-    btn.classList.toggle("yt-spec-button-shape-next--filled", enabled);
-    btn.classList.toggle("yt-spec-button-shape-next--tonal", !enabled);
+    btn.className = BUTTON_CLASS;
+    btn.dataset.mode = enabled ? "hide" : "dim";
+    btn.textContent = enabled ? "Vues : cachees" : "Vues : grisees";
+    btn.setAttribute("aria-label", enabled ? "Mode cacher les videos vues" : "Mode griser les videos vues");
 }
 
 
@@ -138,14 +148,23 @@ function removeBadge(targetCard) {
     if (badge) badge.remove();
 }
 
-function applyMode(enabled, threshold = DEFAULT_THRESHOLD) {
+function applyMode(enabled, threshold = DEFAULT_THRESHOLD, hideShorts = false) {
     const containers = document.querySelectorAll(CARD_CONTAINERS);
 
     containers.forEach((container) => {
+        const isShort = isShortVideo(container);
         const watched = isWatchedWithin(container, threshold);
         const target = getBestHideTarget(container);
 
         if (!(target instanceof HTMLElement)) return;
+
+        if (hideShorts && isShort) {
+            target.classList.add(HIDE_CLASS);
+            target.classList.remove(DIM_CLASS);
+            removeBadge(target);
+            target.setAttribute("data-yt-hide-watched", "hide-short");
+            return;
+        }
 
         if (watched) {
             if (enabled) {
@@ -179,6 +198,41 @@ function ensureStyles() {
     const style = document.createElement("style");
     style.id = "yt-hide-watched-style";
     style.textContent = `
+    .${BUTTON_CLASS} {
+      appearance: none !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      min-width: 118px !important;
+      height: 36px !important;
+      margin-right: 8px !important;
+      padding: 0 14px !important;
+      border: 1px solid rgba(255, 255, 255, 0.18) !important;
+      border-radius: 18px !important;
+      background: #0f0f0f !important;
+      color: #ffffff !important;
+      font: 600 14px/1.2 Roboto, Arial, sans-serif !important;
+      cursor: pointer !important;
+      white-space: nowrap !important;
+      box-shadow: none !important;
+      transition: background 120ms ease, color 120ms ease, border-color 120ms ease !important;
+    }
+    .${BUTTON_CLASS}:hover {
+      background: #272727 !important;
+    }
+    .${BUTTON_CLASS}:focus-visible {
+      outline: 2px solid #3ea6ff !important;
+      outline-offset: 2px !important;
+    }
+    .${BUTTON_CLASS}[data-mode="dim"] {
+      background: #f2f2f2 !important;
+      border-color: #d9d9d9 !important;
+      color: #0f0f0f !important;
+    }
+    .${BUTTON_CLASS}[data-mode="dim"]:hover {
+      background: #e5e5e5 !important;
+    }
+
     .${HIDE_CLASS} { display: none !important; }
 
     .${DIM_CLASS} {
@@ -265,6 +319,12 @@ function getGridSize() {
     });
 }
 
+function getHideShorts() {
+    return new Promise((resolve) => {
+        chrome.storage.sync.get([HIDE_SHORTS_KEY], (res) => resolve(Boolean(res[HIDE_SHORTS_KEY])));
+    });
+}
+
 function isWatchedWithin(container, threshold = DEFAULT_THRESHOLD) {
     const progress = getWatchProgress(container);
     if (progress !== null) return progress >= threshold;
@@ -274,6 +334,11 @@ function isWatchedWithin(container, threshold = DEFAULT_THRESHOLD) {
         container.querySelector("yt-thumbnail-overlay-progress-bar-view-model") ||
         container.querySelector("#progress")
     );
+}
+
+function isShortVideo(container) {
+    if (container.closest("ytd-reel-item-renderer")) return true;
+    return Boolean(container.querySelector("a#thumbnail[href*='/shorts/']"));
 }
 
 function getWatchProgress(container) {
@@ -361,19 +426,25 @@ function debounce(fn, delay = 250) {
 async function boot() {
     ensureStyles();
 
-    const [enabled, threshold, gridSize] = await Promise.all([
+    const [enabled, threshold, gridSize, hideShorts] = await Promise.all([
         getEnabled(),
         getThreshold(),
-        getGridSize()
+        getGridSize(),
+        getHideShorts()
     ]);
     await ensurePillButton(enabled);
-    applyMode(enabled, threshold);
+    applyMode(enabled, threshold, hideShorts);
     applyGridSize(gridSize);
 
     const debounced = debounce(async () => {
-        const [e, t, g] = await Promise.all([getEnabled(), getThreshold(), getGridSize()]);
+        const [e, t, g, hs] = await Promise.all([
+            getEnabled(),
+            getThreshold(),
+            getGridSize(),
+            getHideShorts()
+        ]);
         await ensurePillButton(e);
-        applyMode(e, t);
+        applyMode(e, t, hs);
         applyGridSize(g);
     }, 300);
 
