@@ -2,6 +2,7 @@ const STORAGE_KEY = "yt_hide_watched_enabled";
 const THRESHOLD_STORAGE_KEY = "yt_hide_watched_threshold";
 const GRID_SIZE_STORAGE_KEY = "yt_hide_watched_grid_size";
 const HIDE_SHORTS_KEY = "yt_hide_watched_hide_shorts";
+const DEBUG_MODE_KEY = "yt_hide_watched_debug_mode";
 const DEFAULT_THRESHOLD = 0.8;
 const DEFAULT_GRID_SIZE = 4;
 
@@ -9,12 +10,13 @@ const toggle = document.getElementById("toggle-enabled");
 const slider = document.getElementById("threshold-slider");
 const sliderValue = document.getElementById("threshold-value");
 const shortsToggle = document.getElementById("toggle-shorts");
+const debugToggle = document.getElementById("toggle-debug");
 const gridSizeSelect = document.getElementById("select-grid-size");
 
 function getStoredSettings() {
   return new Promise((resolve) => {
     chrome.storage.sync.get(
-      [STORAGE_KEY, THRESHOLD_STORAGE_KEY, GRID_SIZE_STORAGE_KEY, HIDE_SHORTS_KEY],
+      [STORAGE_KEY, THRESHOLD_STORAGE_KEY, GRID_SIZE_STORAGE_KEY, HIDE_SHORTS_KEY, DEBUG_MODE_KEY],
       (res) => {
       const enabled = Boolean(res[STORAGE_KEY]);
       const stored = parseFloat(res[THRESHOLD_STORAGE_KEY]);
@@ -22,7 +24,8 @@ function getStoredSettings() {
       const gridStored = parseInt(res[GRID_SIZE_STORAGE_KEY], 10);
       const gridSize = Number.isFinite(gridStored) ? gridStored : DEFAULT_GRID_SIZE;
       const hideShorts = Boolean(res[HIDE_SHORTS_KEY]);
-      resolve({ enabled, threshold, gridSize, hideShorts });
+      const debugMode = Boolean(res[DEBUG_MODE_KEY]);
+      resolve({ enabled, threshold, gridSize, hideShorts, debugMode });
     });
   });
 }
@@ -51,6 +54,12 @@ function setHideShorts(value) {
   });
 }
 
+function setDebugMode(value) {
+  return new Promise((resolve) => {
+    chrome.storage.sync.set({ [DEBUG_MODE_KEY]: value }, () => resolve());
+  });
+}
+
 function normalizeThreshold(value) {
   const parsed = parseFloat(value);
   if (!Number.isFinite(parsed)) return DEFAULT_THRESHOLD;
@@ -68,12 +77,13 @@ function formatPercent(value) {
 }
 
 async function init() {
-  const { enabled, threshold, gridSize, hideShorts } = await getStoredSettings();
+  const { enabled, threshold, gridSize, hideShorts, debugMode } = await getStoredSettings();
   toggle.checked = enabled;
   slider.value = String(threshold);
   sliderValue.textContent = formatPercent(threshold);
   gridSizeSelect.value = String(normalizeGridSize(gridSize));
   shortsToggle.checked = hideShorts;
+  debugToggle.checked = debugMode;
 }
 
 toggle.addEventListener("change", async (event) => {
@@ -103,6 +113,11 @@ gridSizeSelect.addEventListener("change", async (event) => {
 shortsToggle.addEventListener("change", async (event) => {
   const checked = event.target.checked;
   await setHideShorts(checked);
+});
+
+debugToggle.addEventListener("change", async (event) => {
+  const checked = event.target.checked;
+  await setDebugMode(checked);
 });
 
 init();
