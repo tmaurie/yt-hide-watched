@@ -48,6 +48,10 @@ body {
   margin-top: 14px;
 }
 
+.panel__section--footer {
+  padding-top: 2px;
+}
+
 .row {
   display: flex;
   align-items: center;
@@ -73,6 +77,27 @@ body {
   background: #fff;
   color: var(--text);
   font-size: 13px;
+}
+
+.button {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #1d1b16;
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.button:hover {
+  background: #373229;
+}
+
+.button:active {
+  transform: translateY(1px);
 }
 
 .slider {

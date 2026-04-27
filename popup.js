@@ -5,6 +5,13 @@ const HIDE_SHORTS_KEY = "yt_hide_watched_hide_shorts";
 const DEBUG_MODE_KEY = "yt_hide_watched_debug_mode";
 const DEFAULT_THRESHOLD = 0.8;
 const DEFAULT_GRID_SIZE = 4;
+const DEFAULT_SETTINGS = {
+  enabled: false,
+  threshold: DEFAULT_THRESHOLD,
+  gridSize: DEFAULT_GRID_SIZE,
+  hideShorts: false,
+  debugMode: false
+};
 
 const toggle = document.getElementById("toggle-enabled");
 const slider = document.getElementById("threshold-slider");
@@ -12,6 +19,7 @@ const sliderValue = document.getElementById("threshold-value");
 const shortsToggle = document.getElementById("toggle-shorts");
 const debugToggle = document.getElementById("toggle-debug");
 const gridSizeSelect = document.getElementById("select-grid-size");
+const resetButton = document.getElementById("reset-settings");
 
 function getStoredSettings() {
   return new Promise((resolve) => {
@@ -60,6 +68,18 @@ function setDebugMode(value) {
   });
 }
 
+function setDefaultSettings() {
+  return new Promise((resolve) => {
+    chrome.storage.sync.set({
+      [STORAGE_KEY]: DEFAULT_SETTINGS.enabled,
+      [THRESHOLD_STORAGE_KEY]: DEFAULT_SETTINGS.threshold,
+      [GRID_SIZE_STORAGE_KEY]: DEFAULT_SETTINGS.gridSize,
+      [HIDE_SHORTS_KEY]: DEFAULT_SETTINGS.hideShorts,
+      [DEBUG_MODE_KEY]: DEFAULT_SETTINGS.debugMode
+    }, () => resolve());
+  });
+}
+
 function normalizeThreshold(value) {
   const parsed = parseFloat(value);
   if (!Number.isFinite(parsed)) return DEFAULT_THRESHOLD;
@@ -78,6 +98,10 @@ function formatPercent(value) {
 
 async function init() {
   const { enabled, threshold, gridSize, hideShorts, debugMode } = await getStoredSettings();
+  renderSettings({ enabled, threshold, gridSize, hideShorts, debugMode });
+}
+
+function renderSettings({ enabled, threshold, gridSize, hideShorts, debugMode }) {
   toggle.checked = enabled;
   slider.value = String(threshold);
   sliderValue.textContent = formatPercent(threshold);
@@ -118,6 +142,11 @@ shortsToggle.addEventListener("change", async (event) => {
 debugToggle.addEventListener("change", async (event) => {
   const checked = event.target.checked;
   await setDebugMode(checked);
+});
+
+resetButton.addEventListener("click", async () => {
+  await setDefaultSettings();
+  renderSettings(DEFAULT_SETTINGS);
 });
 
 init();
