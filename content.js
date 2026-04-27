@@ -7,6 +7,8 @@ const STORAGE_KEYS = {
 };
 
 const TOPBAR_BTN_ID = "yt-hide-watched-pill-btn";
+const TOPBAR_CONTROL_ID = "yt-hide-watched-topbar-control";
+const TOPBAR_MENU_ID = "yt-hide-watched-topbar-menu";
 const STYLE_IDS = {
     base: "yt-hide-watched-style",
     grid: "yt-hide-watched-grid-style",
@@ -18,7 +20,15 @@ const CLASSES = {
     dim: "yt-hide-watched__dim",
     badge: "yt-hide-watched__badge",
     debugBadge: "yt-hide-watched__debug-badge",
-    button: "yt-hide-watched__pill"
+    button: "yt-hide-watched__pill",
+    topbarControl: "yt-hide-watched__topbar-control",
+    menu: "yt-hide-watched__menu",
+    menuRow: "yt-hide-watched__menu-row",
+    menuLabel: "yt-hide-watched__menu-label",
+    menuValue: "yt-hide-watched__menu-value",
+    menuButton: "yt-hide-watched__menu-button",
+    menuSlider: "yt-hide-watched__menu-slider",
+    menuSelect: "yt-hide-watched__menu-select"
 };
 
 const DEFAULTS = {
@@ -107,15 +117,6 @@ async function getSettings() {
     };
 }
 
-async function getEnabled() {
-    const res = await storageGet([STORAGE_KEYS.enabled]);
-    return Boolean(res[STORAGE_KEYS.enabled]);
-}
-
-function setEnabled(value) {
-    return storageSet({ [STORAGE_KEYS.enabled]: value });
-}
-
 function waitForElement(selector, { timeout = 15000 } = {}) {
     return new Promise((resolve) => {
         const el = document.querySelector(selector);
@@ -140,6 +141,15 @@ function waitForElement(selector, { timeout = 15000 } = {}) {
     });
 }
 
+function buildTopbarControl(settings) {
+    const control = document.createElement("span");
+    control.id = TOPBAR_CONTROL_ID;
+    control.className = CLASSES.topbarControl;
+    control.appendChild(buildPillButton(settings.enabled));
+    control.appendChild(buildQuickMenu(settings));
+    return control;
+}
+
 function buildPillButton(enabled) {
     const btn = document.createElement("button");
     btn.id = TOPBAR_BTN_ID;
@@ -148,14 +158,117 @@ function buildPillButton(enabled) {
 
     updatePillButtonState(btn, enabled);
 
-    btn.addEventListener("click", async () => {
-        const next = !(await getEnabled());
-        await setEnabled(next);
-        updatePillButton(next);
-        await refreshPageState({ enabled: next });
+    btn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        toggleQuickMenu();
     });
 
     return btn;
+}
+
+function buildQuickMenu(settings) {
+    const menu = document.createElement("div");
+    menu.id = TOPBAR_MENU_ID;
+    menu.className = CLASSES.menu;
+    menu.hidden = true;
+    menu.addEventListener("click", (event) => event.stopPropagation());
+
+    const title = document.createElement("div");
+    title.className = CLASSES.menuLabel;
+    title.textContent = "YouTube Hide Watched";
+    menu.appendChild(title);
+
+    const modeButton = document.createElement("button");
+    modeButton.type = "button";
+    modeButton.className = CLASSES.menuButton;
+    modeButton.dataset.control = "enabled";
+    modeButton.addEventListener("click", async () => {
+        const current = await getSettings();
+        const enabled = !current.enabled;
+        await storageSet({ [STORAGE_KEYS.enabled]: enabled });
+        await refreshPageState({ enabled });
+    });
+    menu.appendChild(modeButton);
+
+    const thresholdRow = createMenuRow("Seuil", "threshold-value");
+    const thresholdSlider = document.createElement("input");
+    thresholdSlider.type = "range";
+    thresholdSlider.min = "0";
+    thresholdSlider.max = "1";
+    thresholdSlider.step = "0.01";
+    thresholdSlider.className = CLASSES.menuSlider;
+    thresholdSlider.dataset.control = "threshold";
+    thresholdSlider.addEventListener("input", () => {
+        thresholdRow.value.textContent = formatPercent(clamp01(thresholdSlider.value) ?? DEFAULTS.threshold);
+    });
+    thresholdSlider.addEventListener("change", async () => {
+        const threshold = clamp01(thresholdSlider.value) ?? DEFAULTS.threshold;
+        await storageSet({ [STORAGE_KEYS.threshold]: threshold });
+        await refreshPageState({ threshold });
+    });
+    thresholdRow.row.appendChild(thresholdSlider);
+    menu.appendChild(thresholdRow.row);
+
+    const gridRow = createMenuRow("Grille", "grid-value");
+    const gridSelect = document.createElement("select");
+    gridSelect.className = CLASSES.menuSelect;
+    gridSelect.dataset.control = "gridSize";
+    [4, 5, 6, 7, 8].forEach((value) => {
+        const option = document.createElement("option");
+        option.value = String(value);
+        option.textContent = String(value);
+        gridSelect.appendChild(option);
+    });
+    gridSelect.addEventListener("change", async () => {
+        const gridSize = clamp(gridSelect.value, 4, 8) ?? DEFAULTS.gridSize;
+        await storageSet({ [STORAGE_KEYS.gridSize]: gridSize });
+        await refreshPageState({ gridSize });
+    });
+    gridRow.row.appendChild(gridSelect);
+    menu.appendChild(gridRow.row);
+
+    const shortsRow = createMenuRow("Shorts", "shorts-value");
+    const shortsToggle = document.createElement("input");
+    shortsToggle.type = "checkbox";
+    shortsToggle.dataset.control = "hideShorts";
+    shortsToggle.addEventListener("change", async () => {
+        const hideShorts = shortsToggle.checked;
+        await storageSet({ [STORAGE_KEYS.hideShorts]: hideShorts });
+        await refreshPageState({ hideShorts });
+    });
+    shortsRow.row.appendChild(shortsToggle);
+    menu.appendChild(shortsRow.row);
+
+    updateQuickMenu(settings, menu);
+    return menu;
+}
+
+function createMenuRow(label, valueId) {
+    const row = document.createElement("label");
+    row.className = CLASSES.menuRow;
+
+    const header = document.createElement("span");
+    header.className = CLASSES.menuLabel;
+    header.textContent = label;
+
+    const value = document.createElement("span");
+    value.className = CLASSES.menuValue;
+    value.dataset.value = valueId;
+    header.appendChild(value);
+
+    row.appendChild(header);
+    return { row, value };
+}
+
+function toggleQuickMenu(forceOpen = null) {
+    const menu = document.getElementById(TOPBAR_MENU_ID);
+    if (!menu) return;
+
+    menu.hidden = forceOpen === null ? !menu.hidden : !forceOpen;
+}
+
+function closeQuickMenu() {
+    toggleQuickMenu(false);
 }
 
 function updatePillButtonState(btn, enabled) {
@@ -172,24 +285,51 @@ function updatePillButton(enabled) {
     updatePillButtonState(btn, enabled);
 }
 
-async function ensurePillButton(enabled) {
+async function ensurePillButton(settings) {
     const end = await waitForElement("#masthead #end");
     if (!end) return;
 
-    if (document.getElementById(TOPBAR_BTN_ID)) {
-        updatePillButton(enabled);
+    if (document.getElementById(TOPBAR_CONTROL_ID)) {
+        updatePillButton(settings.enabled);
+        updateQuickMenu(settings);
         return;
     }
 
+    const orphanButton = document.getElementById(TOPBAR_BTN_ID);
+    if (orphanButton) orphanButton.remove();
+
     const createBtn = [...end.querySelectorAll("button")]
         .find((button) => button.textContent?.includes("Créer") || button.textContent?.includes("Creer"));
-    const pill = buildPillButton(enabled);
+    const control = buildTopbarControl(settings);
 
     if (createBtn?.parentElement) {
-        createBtn.parentElement.insertBefore(pill, createBtn);
+        createBtn.parentElement.insertBefore(control, createBtn);
     } else {
-        end.prepend(pill);
+        end.prepend(control);
     }
+}
+
+function updateQuickMenu(settings, menu = document.getElementById(TOPBAR_MENU_ID)) {
+    if (!menu) return;
+
+    const modeButton = menu.querySelector("[data-control='enabled']");
+    const thresholdSlider = menu.querySelector("[data-control='threshold']");
+    const gridSelect = menu.querySelector("[data-control='gridSize']");
+    const shortsToggle = menu.querySelector("[data-control='hideShorts']");
+    const thresholdValue = menu.querySelector("[data-value='threshold-value']");
+    const gridValue = menu.querySelector("[data-value='grid-value']");
+    const shortsValue = menu.querySelector("[data-value='shorts-value']");
+
+    if (modeButton) {
+        modeButton.textContent = settings.enabled ? "Mode : cacher les vues" : "Mode : griser les vues";
+        modeButton.dataset.mode = settings.enabled ? "hide" : "dim";
+    }
+    if (thresholdSlider) thresholdSlider.value = String(settings.threshold);
+    if (thresholdValue) thresholdValue.textContent = formatPercent(settings.threshold);
+    if (gridSelect) gridSelect.value = String(settings.gridSize);
+    if (gridValue) gridValue.textContent = `${settings.gridSize}/ligne`;
+    if (shortsToggle) shortsToggle.checked = settings.hideShorts;
+    if (shortsValue) shortsValue.textContent = settings.hideShorts ? "on" : "off";
 }
 
 function applyMode({ enabled, threshold, hideShorts, debugMode }) {
@@ -311,6 +451,13 @@ function ensureStyles() {
     const style = document.createElement("style");
     style.id = STYLE_IDS.base;
     style.textContent = `
+    .${CLASSES.topbarControl} {
+      position: relative !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      margin-right: 8px !important;
+    }
+
     .${CLASSES.button} {
       appearance: none !important;
       display: inline-flex !important;
@@ -318,7 +465,7 @@ function ensureStyles() {
       justify-content: center !important;
       min-width: 118px !important;
       height: 36px !important;
-      margin-right: 8px !important;
+      margin-right: 0 !important;
       padding: 0 14px !important;
       border: 1px solid rgba(255, 255, 255, 0.18) !important;
       border-radius: 18px !important;
@@ -341,6 +488,69 @@ function ensureStyles() {
       color: #0f0f0f !important;
     }
     .${CLASSES.button}[data-mode="dim"]:hover { background: #e5e5e5 !important; }
+
+    .${CLASSES.menu} {
+      position: absolute !important;
+      top: calc(100% + 10px) !important;
+      right: 0 !important;
+      z-index: 2200 !important;
+      width: 236px !important;
+      padding: 12px !important;
+      border: 1px solid rgba(255,255,255,0.14) !important;
+      border-radius: 14px !important;
+      background: rgba(18,18,18,0.96) !important;
+      color: #fff !important;
+      box-shadow: 0 12px 36px rgba(0,0,0,0.36) !important;
+      font: 500 12px/1.25 Roboto, Arial, sans-serif !important;
+    }
+    .${CLASSES.menu}[hidden] { display: none !important; }
+    .${CLASSES.menuRow} {
+      display: flex !important;
+      flex-direction: column !important;
+      gap: 7px !important;
+      margin-top: 12px !important;
+      color: #fff !important;
+    }
+    .${CLASSES.menuLabel} {
+      display: flex !important;
+      justify-content: space-between !important;
+      align-items: center !important;
+      gap: 8px !important;
+      color: #f1f1f1 !important;
+      font-weight: 700 !important;
+    }
+    .${CLASSES.menuValue} {
+      color: #aaa !important;
+      font-weight: 600 !important;
+    }
+    .${CLASSES.menuButton} {
+      width: 100% !important;
+      margin-top: 10px !important;
+      padding: 9px 10px !important;
+      border: 0 !important;
+      border-radius: 10px !important;
+      background: #fff !important;
+      color: #0f0f0f !important;
+      font: 700 12px/1 Roboto, Arial, sans-serif !important;
+      cursor: pointer !important;
+    }
+    .${CLASSES.menuButton}[data-mode="dim"] {
+      background: #2b2b2b !important;
+      color: #fff !important;
+    }
+    .${CLASSES.menuSlider} {
+      width: 100% !important;
+      accent-color: #ff4e45 !important;
+    }
+    .${CLASSES.menuSelect} {
+      width: 100% !important;
+      padding: 7px 8px !important;
+      border: 1px solid #3d3d3d !important;
+      border-radius: 9px !important;
+      background: #202020 !important;
+      color: #fff !important;
+      font: 600 12px/1 Roboto, Arial, sans-serif !important;
+    }
 
     .${CLASSES.hidden} { display: none !important; }
 
@@ -620,6 +830,10 @@ function clamp(num, min, max) {
     return Math.min(max, Math.max(min, n));
 }
 
+function formatPercent(value) {
+    return `${Math.round(value * 100)}%`;
+}
+
 function debounce(fn, delay = 250) {
     let t;
     return (...args) => {
@@ -631,7 +845,7 @@ function debounce(fn, delay = 250) {
 async function refreshPageState(overrides = {}) {
     const settings = { ...(await getSettings()), ...overrides };
 
-    await ensurePillButton(settings.enabled);
+    await ensurePillButton(settings);
     applyMode(settings);
     applyHideShortsCss(settings.hideShorts);
     applyGridSize(settings.gridSize);
@@ -645,6 +859,10 @@ async function boot() {
     const obs = new MutationObserver(() => debouncedRefresh());
     obs.observe(document.body, { childList: true, subtree: true });
 
+    document.addEventListener("click", closeQuickMenu);
+    document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") closeQuickMenu();
+    });
     document.addEventListener("yt-navigate-finish", () => debouncedRefresh());
     setInterval(() => debouncedRefresh(), 2000);
 }
