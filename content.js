@@ -1,24 +1,35 @@
-const STORAGE_KEY = "yt_hide_watched_enabled";
-const THRESHOLD_STORAGE_KEY = "yt_hide_watched_threshold";
-const GRID_SIZE_STORAGE_KEY = "yt_hide_watched_grid_size";
-const HIDE_SHORTS_KEY = "yt_hide_watched_hide_shorts";
-const DEBUG_MODE_KEY = "yt_hide_watched_debug_mode";
+const STORAGE_KEYS = {
+    enabled: "yt_hide_watched_enabled",
+    threshold: "yt_hide_watched_threshold",
+    gridSize: "yt_hide_watched_grid_size",
+    hideShorts: "yt_hide_watched_hide_shorts",
+    debugMode: "yt_hide_watched_debug_mode"
+};
 
 const TOPBAR_BTN_ID = "yt-hide-watched-pill-btn";
+const STYLE_IDS = {
+    base: "yt-hide-watched-style",
+    grid: "yt-hide-watched-grid-style",
+    shorts: "yt-hide-watched-shorts-style"
+};
 
-const HIDE_CLASS = "yt-hide-watched__hidden";
-const DIM_CLASS = "yt-hide-watched__dim";
-const BADGE_CLASS = "yt-hide-watched__badge";
-const DEBUG_BADGE_CLASS = "yt-hide-watched__debug-badge";
-const BUTTON_CLASS = "yt-hide-watched__pill";
+const CLASSES = {
+    hidden: "yt-hide-watched__hidden",
+    dim: "yt-hide-watched__dim",
+    badge: "yt-hide-watched__badge",
+    debugBadge: "yt-hide-watched__debug-badge",
+    button: "yt-hide-watched__pill"
+};
 
-const DEFAULT_THRESHOLD = 0.8;
-const DEFAULT_GRID_SIZE = 4;
+const DEFAULTS = {
+    threshold: 0.8,
+    gridSize: 4
+};
 
-const CARD_CONTAINERS = [
+const CARD_CONTAINER_SELECTORS = [
     "ytd-rich-item-renderer",      // Home grid items
     "ytd-rich-section-renderer",   // Home Shorts shelves
-    "ytd-rich-grid-media",         // Home card
+    "ytd-rich-grid-media",         // Home cards
     "ytd-rich-grid-slim-media",    // Shorts grid cards
     "ytd-video-renderer",          // Search
     "ytd-grid-video-renderer",     // Channel grid
@@ -26,12 +37,84 @@ const CARD_CONTAINERS = [
     "ytd-playlist-video-renderer", // Playlists
     "ytd-reel-shelf-renderer",
     "ytd-reel-item-renderer"
-].join(",");
+];
 
-const SHORTS_LINK_SELECTOR = [
+const SHORTS_LINK_SELECTORS = [
     "a[href^='/shorts/']",
     "a[href*='youtube.com/shorts/']"
-].join(",");
+];
+
+const SHORTS_HIDE_TARGET_SELECTORS = [
+    "ytd-rich-section-renderer",
+    "ytd-reel-shelf-renderer",
+    "ytd-rich-item-renderer",
+    "ytd-video-renderer",
+    "ytd-grid-video-renderer",
+    "ytd-compact-video-renderer",
+    "ytd-playlist-video-renderer"
+];
+
+const PROGRESS_CANDIDATE_SELECTORS = [
+    "ytd-thumbnail [style*='scale']",
+    "ytd-thumbnail [style*='translate']",
+    "ytd-thumbnail [style*='width']",
+    "ytd-thumbnail [id*='progress' i]",
+    "ytd-thumbnail [class*='progress' i]",
+    "ytd-thumbnail-overlay-resume-playback-renderer [style*='scale']",
+    "ytd-thumbnail-overlay-resume-playback-renderer [style*='translate']",
+    "ytd-thumbnail-overlay-resume-playback-renderer [style*='width']",
+    "ytd-thumbnail-overlay-resume-playback-renderer [aria-valuetext]",
+    "ytd-thumbnail-overlay-resume-playback-renderer [aria-valuenow]",
+    "ytd-thumbnail-overlay-resume-playback-renderer #progress",
+    "yt-thumbnail-overlay-progress-bar-view-model [style*='scale']",
+    "yt-thumbnail-overlay-progress-bar-view-model [style*='translate']",
+    "yt-thumbnail-overlay-progress-bar-view-model [style*='width']",
+    "yt-thumbnail-overlay-progress-bar-view-model [aria-valuetext]",
+    "yt-thumbnail-overlay-progress-bar-view-model [aria-valuenow]",
+    "yt-thumbnail-overlay-progress-bar-view-model #progress",
+    "#progress [style*='scale']",
+    "#progress [style*='translate']",
+    "#progress [style*='width']",
+    "#progress [aria-valuetext]",
+    "#progress [aria-valuenow]",
+    "[role='progressbar'][aria-valuetext]",
+    "[role='progressbar'][aria-valuenow]",
+    "#progress"
+];
+
+const CARD_CONTAINERS = CARD_CONTAINER_SELECTORS.join(",");
+const SHORTS_LINK_SELECTOR = SHORTS_LINK_SELECTORS.join(",");
+
+function storageGet(keys) {
+    return new Promise((resolve) => chrome.storage.sync.get(keys, resolve));
+}
+
+function storageSet(values) {
+    return new Promise((resolve) => chrome.storage.sync.set(values, () => resolve()));
+}
+
+async function getSettings() {
+    const res = await storageGet(Object.values(STORAGE_KEYS));
+    const storedThreshold = parseFloat(res[STORAGE_KEYS.threshold]);
+    const storedGridSize = parseInt(res[STORAGE_KEYS.gridSize], 10);
+
+    return {
+        enabled: Boolean(res[STORAGE_KEYS.enabled]),
+        threshold: clamp01(storedThreshold) ?? DEFAULTS.threshold,
+        gridSize: clamp(storedGridSize, 4, 8) ?? DEFAULTS.gridSize,
+        hideShorts: Boolean(res[STORAGE_KEYS.hideShorts]),
+        debugMode: Boolean(res[STORAGE_KEYS.debugMode])
+    };
+}
+
+async function getEnabled() {
+    const res = await storageGet([STORAGE_KEYS.enabled]);
+    return Boolean(res[STORAGE_KEYS.enabled]);
+}
+
+function setEnabled(value) {
+    return storageSet({ [STORAGE_KEYS.enabled]: value });
+}
 
 function waitForElement(selector, { timeout = 15000 } = {}) {
     return new Promise((resolve) => {
@@ -61,7 +144,7 @@ function buildPillButton(enabled) {
     const btn = document.createElement("button");
     btn.id = TOPBAR_BTN_ID;
     btn.type = "button";
-    btn.className = BUTTON_CLASS;
+    btn.className = CLASSES.button;
 
     updatePillButtonState(btn, enabled);
 
@@ -69,12 +152,7 @@ function buildPillButton(enabled) {
         const next = !(await getEnabled());
         await setEnabled(next);
         updatePillButton(next);
-        const [threshold, hideShorts, debugMode] = await Promise.all([
-            getThreshold(),
-            getHideShorts(),
-            getDebugMode()
-        ]);
-        applyMode(next, threshold, hideShorts, debugMode);
+        await refreshPageState({ enabled: next });
     });
 
     return btn;
@@ -90,7 +168,7 @@ function updatePillButton(enabled) {
     const btn = document.getElementById(TOPBAR_BTN_ID);
     if (!btn) return;
 
-    btn.className = BUTTON_CLASS;
+    btn.className = CLASSES.button;
     updatePillButtonState(btn, enabled);
 }
 
@@ -105,132 +183,135 @@ async function ensurePillButton(enabled) {
 
     const createBtn = [...end.querySelectorAll("button")]
         .find((button) => button.textContent?.includes("Créer") || button.textContent?.includes("Creer"));
-
     const pill = buildPillButton(enabled);
 
-    if (createBtn && createBtn.parentElement) {
+    if (createBtn?.parentElement) {
         createBtn.parentElement.insertBefore(pill, createBtn);
     } else {
         end.prepend(pill);
     }
 }
 
-function ensureBadge(targetCard) {
-    const thumb = getBadgeAnchor(targetCard);
-    if (!(thumb instanceof HTMLElement)) return;
+function applyMode({ enabled, threshold, hideShorts, debugMode }) {
+    document.querySelectorAll(CARD_CONTAINERS).forEach((container) => {
+        const card = analyzeCard(container, threshold);
+        if (!(card.target instanceof HTMLElement)) return;
 
-    ensureRelativePosition(thumb);
-
-    if (thumb.querySelector(`.${BADGE_CLASS}`)) return;
-
-    const badge = document.createElement("div");
-    badge.className = BADGE_CLASS;
-    badge.textContent = "Deja vue";
-    thumb.appendChild(badge);
-}
-
-function removeBadge(targetCard) {
-    const badge = targetCard.querySelector(`.${BADGE_CLASS}`);
-    if (badge) badge.remove();
-}
-
-function updateDebugBadge(targetCard, progressDetails, threshold, isShort, debugMode) {
-    if (!debugMode) {
-        removeDebugBadge(targetCard);
-        return;
-    }
-
-    const thumb = getBadgeAnchor(targetCard);
-    if (!(thumb instanceof HTMLElement)) return;
-
-    ensureRelativePosition(thumb);
-
-    let badge = thumb.querySelector(`.${DEBUG_BADGE_CLASS}`);
-    if (!badge) {
-        badge = document.createElement("div");
-        badge.className = DEBUG_BADGE_CLASS;
-        thumb.appendChild(badge);
-    }
-
-    const progress = progressDetails.value;
-    const percent = progress === null ? "??" : `${Math.round(progress * 100)}%`;
-    const thresholdPercent = `${Math.round(threshold * 100)}%`;
-    const source = progressDetails.source || "none";
-    badge.textContent = isShort ? `Short | ${percent} | ${source}` : `${percent} / ${thresholdPercent} | ${source}`;
-    badge.dataset.state = isShort ? "short" : progress !== null && progress >= threshold ? "watched" : "visible";
-}
-
-function removeDebugBadge(targetCard) {
-    targetCard.querySelectorAll(`.${DEBUG_BADGE_CLASS}`).forEach((badge) => badge.remove());
-}
-
-function getBadgeAnchor(targetCard) {
-    return (
-        targetCard.querySelector("ytd-thumbnail") ||
-        targetCard.querySelector("#thumbnail") ||
-        targetCard
-    );
-}
-
-function ensureRelativePosition(el) {
-    const computed = getComputedStyle(el);
-    if (computed.position === "static") el.style.position = "relative";
-}
-
-function applyMode(enabled, threshold = DEFAULT_THRESHOLD, hideShorts = false, debugMode = false) {
-    const containers = document.querySelectorAll(CARD_CONTAINERS);
-
-    containers.forEach((container) => {
-        const isShort = isShortVideo(container);
-        const progressDetails = getWatchProgressDetails(container);
-        const progress = progressDetails.value;
-        const watched = isWatchedWithin(container, threshold, progress);
-        const target = isShort ? getBestShortsHideTarget(container) : getBestHideTarget(container);
-
-        if (!(target instanceof HTMLElement)) return;
-
-        if (hideShorts && isShort) {
-            target.classList.add(HIDE_CLASS);
-            target.classList.remove(DIM_CLASS);
-            removeBadge(target);
-            removeDebugBadge(target);
-            target.setAttribute("data-yt-hide-watched", "hide-short");
+        if (hideShorts && card.isShort) {
+            applyHiddenState(card.target, "hide-short");
             return;
         }
 
-        if (watched) {
-            if (enabled) {
-                target.classList.add(HIDE_CLASS);
-                target.classList.remove(DIM_CLASS);
-                removeBadge(target);
-                removeDebugBadge(target);
-                target.setAttribute("data-yt-hide-watched", "hide");
-            } else {
-                target.classList.remove(HIDE_CLASS);
-                target.classList.add(DIM_CLASS);
-                ensureBadge(target);
-                updateDebugBadge(target, progressDetails, threshold, isShort, debugMode);
-                target.setAttribute("data-yt-hide-watched", "dim");
-            }
-        } else {
-            target.classList.remove(HIDE_CLASS);
-            target.classList.remove(DIM_CLASS);
-            removeBadge(target);
-            updateDebugBadge(target, progressDetails, threshold, isShort, debugMode);
-            target.removeAttribute("data-yt-hide-watched");
+        if (card.watched && enabled) {
+            applyHiddenState(card.target, "hide");
+            return;
         }
 
-        if (!debugMode) removeDebugBadge(target);
+        if (card.watched) {
+            applyDimmedState(card.target, card, debugMode);
+            return;
+        }
+
+        applyVisibleState(card.target, card, debugMode);
     });
 }
 
+function analyzeCard(container, threshold) {
+    const isShort = isShortVideo(container);
+    const progressDetails = getWatchProgressDetails(container);
+    const watched = isWatchedWithin(container, threshold, progressDetails.value);
+    const target = isShort ? getBestShortsHideTarget(container) : getBestHideTarget(container);
+
+    return { container, target, isShort, threshold, progressDetails, watched };
+}
+
+function applyHiddenState(target, reason) {
+    target.classList.add(CLASSES.hidden);
+    target.classList.remove(CLASSES.dim);
+    removeBadge(target, CLASSES.badge);
+    removeBadge(target, CLASSES.debugBadge);
+    target.setAttribute("data-yt-hide-watched", reason);
+}
+
+function applyDimmedState(target, card, debugMode) {
+    target.classList.remove(CLASSES.hidden);
+    target.classList.add(CLASSES.dim);
+    ensureWatchedBadge(target);
+    updateDebugBadge(target, card, debugMode);
+    target.setAttribute("data-yt-hide-watched", "dim");
+}
+
+function applyVisibleState(target, card, debugMode) {
+    target.classList.remove(CLASSES.hidden);
+    target.classList.remove(CLASSES.dim);
+    removeBadge(target, CLASSES.badge);
+    updateDebugBadge(target, card, debugMode);
+    target.removeAttribute("data-yt-hide-watched");
+}
+
+function ensureWatchedBadge(targetCard) {
+    const anchor = getBadgeAnchor(targetCard);
+    if (!(anchor instanceof HTMLElement)) return;
+
+    ensureRelativePosition(anchor);
+    if (anchor.querySelector(`.${CLASSES.badge}`)) return;
+
+    const badge = document.createElement("div");
+    badge.className = CLASSES.badge;
+    badge.textContent = "Deja vue";
+    anchor.appendChild(badge);
+}
+
+function updateDebugBadge(targetCard, card, debugMode) {
+    if (!debugMode) {
+        removeBadge(targetCard, CLASSES.debugBadge);
+        return;
+    }
+
+    const anchor = getBadgeAnchor(targetCard);
+    if (!(anchor instanceof HTMLElement)) return;
+
+    ensureRelativePosition(anchor);
+
+    const badge = ensureChild(anchor, CLASSES.debugBadge);
+    const progress = card.progressDetails.value;
+    const percent = progress === null ? "??" : `${Math.round(progress * 100)}%`;
+    const thresholdPercent = `${Math.round(card.threshold * 100)}%`;
+    const source = card.progressDetails.source || "none";
+
+    badge.textContent = card.isShort ? `Short | ${percent} | ${source}` : `${percent} / ${thresholdPercent} | ${source}`;
+    badge.dataset.state = card.isShort ? "short" : progress !== null && progress >= card.threshold ? "watched" : "visible";
+}
+
+function ensureChild(parent, className) {
+    let child = parent.querySelector(`.${className}`);
+    if (!child) {
+        child = document.createElement("div");
+        child.className = className;
+        parent.appendChild(child);
+    }
+    return child;
+}
+
+function removeBadge(targetCard, className) {
+    targetCard.querySelectorAll(`.${className}`).forEach((badge) => badge.remove());
+}
+
+function getBadgeAnchor(targetCard) {
+    return targetCard.querySelector("ytd-thumbnail") || targetCard.querySelector("#thumbnail") || targetCard;
+}
+
+function ensureRelativePosition(el) {
+    if (getComputedStyle(el).position === "static") el.style.position = "relative";
+}
+
 function ensureStyles() {
-    if (document.getElementById("yt-hide-watched-style")) return;
+    if (document.getElementById(STYLE_IDS.base)) return;
 
     const style = document.createElement("style");
-    style.id = "yt-hide-watched-style";
+    style.id = STYLE_IDS.base;
     style.textContent = `
-    .${BUTTON_CLASS} {
+    .${CLASSES.button} {
       appearance: none !important;
       display: inline-flex !important;
       align-items: center !important;
@@ -249,35 +330,31 @@ function ensureStyles() {
       box-shadow: none !important;
       transition: background 120ms ease, color 120ms ease, border-color 120ms ease !important;
     }
-    .${BUTTON_CLASS}:hover {
-      background: #272727 !important;
-    }
-    .${BUTTON_CLASS}:focus-visible {
+    .${CLASSES.button}:hover { background: #272727 !important; }
+    .${CLASSES.button}:focus-visible {
       outline: 2px solid #3ea6ff !important;
       outline-offset: 2px !important;
     }
-    .${BUTTON_CLASS}[data-mode="dim"] {
+    .${CLASSES.button}[data-mode="dim"] {
       background: #f2f2f2 !important;
       border-color: #d9d9d9 !important;
       color: #0f0f0f !important;
     }
-    .${BUTTON_CLASS}[data-mode="dim"]:hover {
-      background: #e5e5e5 !important;
-    }
+    .${CLASSES.button}[data-mode="dim"]:hover { background: #e5e5e5 !important; }
 
-    .${HIDE_CLASS} { display: none !important; }
+    .${CLASSES.hidden} { display: none !important; }
 
-    .${DIM_CLASS} {
+    .${CLASSES.dim} {
       filter: grayscale(1) saturate(0.2);
       opacity: 0.45;
       transition: opacity 120ms ease, filter 120ms ease;
     }
-    .${DIM_CLASS}:hover {
+    .${CLASSES.dim}:hover {
       opacity: 0.75;
       filter: grayscale(0.6) saturate(0.6);
     }
 
-    .${BADGE_CLASS}{
+    .${CLASSES.badge}{
       position: absolute;
       top: 8px;
       left: 8px;
@@ -292,7 +369,7 @@ function ensureStyles() {
       font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
     }
 
-    .${DEBUG_BADGE_CLASS}{
+    .${CLASSES.debugBadge}{
       position: absolute;
       right: 8px;
       bottom: 8px;
@@ -307,55 +384,40 @@ function ensureStyles() {
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       box-shadow: 0 2px 8px rgba(0,0,0,0.25);
     }
-    .${DEBUG_BADGE_CLASS}[data-state="watched"] {
-      background: rgba(227, 82, 56, 0.92);
-    }
-    .${DEBUG_BADGE_CLASS}[data-state="short"] {
-      background: rgba(30, 120, 210, 0.92);
-    }
+    .${CLASSES.debugBadge}[data-state="watched"] { background: rgba(227, 82, 56, 0.92); }
+    .${CLASSES.debugBadge}[data-state="short"] { background: rgba(30, 120, 210, 0.92); }
   `;
     document.documentElement.appendChild(style);
 }
 
-function applyGridSize(size = DEFAULT_GRID_SIZE) {
-    const clamped = Math.min(8, Math.max(4, Number(size) || DEFAULT_GRID_SIZE));
-    let style = document.getElementById("yt-hide-watched-grid-style");
-    if (!style) {
-        style = document.createElement("style");
-        style.id = "yt-hide-watched-grid-style";
-        document.documentElement.appendChild(style);
-    }
+function applyGridSize(size = DEFAULTS.gridSize) {
+    const columns = clamp(Number(size), 4, 8) ?? DEFAULTS.gridSize;
+    const style = ensureStyleElement(STYLE_IDS.grid);
 
     style.textContent = `
     ytd-rich-grid-renderer {
-      --ytd-rich-grid-items-per-row: ${clamped} !important;
-      --ytd-rich-grid-slim-items-per-row: ${clamped} !important;
+      --ytd-rich-grid-items-per-row: ${columns} !important;
+      --ytd-rich-grid-slim-items-per-row: ${columns} !important;
     }
     ytd-rich-grid-renderer #contents {
-      grid-template-columns: repeat(${clamped}, minmax(0, 1fr)) !important;
+      grid-template-columns: repeat(${columns}, minmax(0, 1fr)) !important;
     }
     ytd-rich-grid-row,
     ytd-rich-grid-renderer #contents ytd-rich-grid-row {
-      grid-template-columns: repeat(${clamped}, minmax(0, 1fr)) !important;
+      grid-template-columns: repeat(${columns}, minmax(0, 1fr)) !important;
       display: contents !important;
     }
   `;
 }
 
 function applyHideShortsCss(hideShorts = false) {
-    let style = document.getElementById("yt-hide-watched-shorts-style");
-
+    const existing = document.getElementById(STYLE_IDS.shorts);
     if (!hideShorts) {
-        if (style) style.remove();
+        if (existing) existing.remove();
         return;
     }
 
-    if (!style) {
-        style = document.createElement("style");
-        style.id = "yt-hide-watched-shorts-style";
-        document.documentElement.appendChild(style);
-    }
-
+    const style = existing || ensureStyleElement(STYLE_IDS.shorts);
     style.textContent = `
     ytd-rich-item-renderer:has(${SHORTS_LINK_SELECTOR}),
     ytd-rich-section-renderer:has(${SHORTS_LINK_SELECTOR}),
@@ -372,51 +434,17 @@ function applyHideShortsCss(hideShorts = false) {
   `;
 }
 
-function getEnabled() {
-    return new Promise((resolve) => {
-        chrome.storage.sync.get([STORAGE_KEY], (res) => resolve(Boolean(res[STORAGE_KEY])));
-    });
+function ensureStyleElement(id) {
+    let style = document.getElementById(id);
+    if (!style) {
+        style = document.createElement("style");
+        style.id = id;
+        document.documentElement.appendChild(style);
+    }
+    return style;
 }
 
-function setEnabled(value) {
-    return new Promise((resolve) => {
-        chrome.storage.sync.set({ [STORAGE_KEY]: value }, () => resolve());
-    });
-}
-
-function getThreshold() {
-    return new Promise((resolve) => {
-        chrome.storage.sync.get([THRESHOLD_STORAGE_KEY], (res) => {
-            const stored = parseFloat(res[THRESHOLD_STORAGE_KEY]);
-            const value = Number.isFinite(stored) ? stored : DEFAULT_THRESHOLD;
-            resolve(clamp01(value) ?? DEFAULT_THRESHOLD);
-        });
-    });
-}
-
-function getGridSize() {
-    return new Promise((resolve) => {
-        chrome.storage.sync.get([GRID_SIZE_STORAGE_KEY], (res) => {
-            const stored = parseInt(res[GRID_SIZE_STORAGE_KEY], 10);
-            const value = Number.isFinite(stored) ? stored : DEFAULT_GRID_SIZE;
-            resolve(Math.min(8, Math.max(4, value)));
-        });
-    });
-}
-
-function getHideShorts() {
-    return new Promise((resolve) => {
-        chrome.storage.sync.get([HIDE_SHORTS_KEY], (res) => resolve(Boolean(res[HIDE_SHORTS_KEY])));
-    });
-}
-
-function getDebugMode() {
-    return new Promise((resolve) => {
-        chrome.storage.sync.get([DEBUG_MODE_KEY], (res) => resolve(Boolean(res[DEBUG_MODE_KEY])));
-    });
-}
-
-function isWatchedWithin(container, threshold = DEFAULT_THRESHOLD, knownProgress = null) {
+function isWatchedWithin(container, threshold = DEFAULTS.threshold, knownProgress = null) {
     const progress = knownProgress ?? getWatchProgress(container);
     if (progress !== null) return progress >= threshold;
 
@@ -429,9 +457,6 @@ function hasWatchedMarker(container) {
 
 function isShortVideo(container) {
     if (container.closest("ytd-reel-item-renderer")) return true;
-    if (container.matches("ytd-reel-shelf-renderer, ytd-rich-section-renderer")) {
-        return Boolean(container.querySelector(SHORTS_LINK_SELECTOR));
-    }
     return Boolean(container.querySelector(SHORTS_LINK_SELECTOR));
 }
 
@@ -441,12 +466,9 @@ function getWatchProgress(container) {
 
 function getWatchProgressDetails(container) {
     const candidates = getProgressCandidates(container);
-    const details = [];
-
-    for (const candidate of candidates) {
-        const progress = extractProgressFromElement(candidate);
-        if (progress.value !== null) details.push(progress);
-    }
+    const details = candidates
+        .map(extractProgressFromElement)
+        .filter((progress) => progress.value !== null);
 
     if (!details.length) return { value: null, source: "none", count: candidates.length };
 
@@ -456,68 +478,67 @@ function getWatchProgressDetails(container) {
 }
 
 function getProgressCandidates(container) {
-    const selectors = [
-        "ytd-thumbnail [style*='scale']",
-        "ytd-thumbnail [style*='translate']",
-        "ytd-thumbnail [style*='width']",
-        "ytd-thumbnail [id*='progress' i]",
-        "ytd-thumbnail [class*='progress' i]",
-        "ytd-thumbnail-overlay-resume-playback-renderer [style*='scale']",
-        "ytd-thumbnail-overlay-resume-playback-renderer [style*='translate']",
-        "ytd-thumbnail-overlay-resume-playback-renderer [style*='width']",
-        "ytd-thumbnail-overlay-resume-playback-renderer [aria-valuetext]",
-        "ytd-thumbnail-overlay-resume-playback-renderer [aria-valuenow]",
-        "ytd-thumbnail-overlay-resume-playback-renderer #progress",
-        "yt-thumbnail-overlay-progress-bar-view-model [style*='scale']",
-        "yt-thumbnail-overlay-progress-bar-view-model [style*='translate']",
-        "yt-thumbnail-overlay-progress-bar-view-model [style*='width']",
-        "yt-thumbnail-overlay-progress-bar-view-model [aria-valuetext]",
-        "yt-thumbnail-overlay-progress-bar-view-model [aria-valuenow]",
-        "yt-thumbnail-overlay-progress-bar-view-model #progress",
-        "#progress [style*='scale']",
-        "#progress [style*='translate']",
-        "#progress [style*='width']",
-        "#progress [aria-valuetext]",
-        "#progress [aria-valuenow]",
-        "[role='progressbar'][aria-valuetext]",
-        "[role='progressbar'][aria-valuenow]",
-        "#progress"
-    ];
-
-    return [...new Set(selectors.flatMap((selector) => queryDeepAll(container, selector)))];
+    const candidates = PROGRESS_CANDIDATE_SELECTORS.flatMap((selector) => queryDeepAll(container, selector));
+    return [...new Set(candidates)];
 }
 
 function queryDeepAll(root, selector, seen = new Set()) {
     const results = [];
-
     if (!root || seen.has(root)) return results;
     seen.add(root);
 
-    if (root instanceof Element) {
-        try {
-            if (root.matches(selector)) results.push(root);
-        } catch (_) {
-            return results;
-        }
-    }
+    if (root instanceof Element && matchesSafely(root, selector)) results.push(root);
 
     const queryRoot = root instanceof ShadowRoot || root instanceof Element || root instanceof Document
         ? root
         : null;
+    if (!queryRoot) return results;
 
-    if (queryRoot) {
-        try {
-            results.push(...queryRoot.querySelectorAll(selector));
-        } catch (_) {
-            return results;
-        }
-
-        queryRoot.querySelectorAll("*").forEach((el) => {
-            if (el.shadowRoot) results.push(...queryDeepAll(el.shadowRoot, selector, seen));
-        });
+    try {
+        results.push(...queryRoot.querySelectorAll(selector));
+    } catch (_) {
+        return results;
     }
 
+    queryRoot.querySelectorAll("*").forEach((el) => {
+        if (el.shadowRoot) results.push(...queryDeepAll(el.shadowRoot, selector, seen));
+    });
+
     return results;
+}
+
+function matchesSafely(el, selector) {
+    try {
+        return el.matches(selector);
+    } catch (_) {
+        return false;
+    }
+}
+
+function extractProgressFromElement(el) {
+    if (!el) return progressResult(null);
+
+    const fromText = parsePercentText(el.getAttribute("aria-valuetext") || el.getAttribute("aria-label") || "");
+    if (fromText !== null) return progressResult(fromText, "text");
+
+    const computed = getComputedStyle(el);
+    const fromTransform = parseTransformProgress(el.style.transform || computed.transform);
+    if (fromTransform !== null) return progressResult(fromTransform, "transform");
+
+    const fromStyle = parseWidthPercentText(el.getAttribute("style") || el.style.width || computed.width);
+    if (fromStyle !== null) return progressResult(fromStyle, "style");
+
+    const fromGeometry = extractProgressFromGeometry(el);
+    if (fromGeometry !== null) return progressResult(fromGeometry, "geometry");
+
+    const fromAria = extractProgressFromAria(el);
+    if (fromAria !== null) return progressResult(fromAria, "aria");
+
+    return progressResult(null);
+}
+
+function progressResult(value, source = "none") {
+    return { value, source };
 }
 
 function extractProgressFromAria(el) {
@@ -529,33 +550,7 @@ function extractProgressFromAria(el) {
     const range = max - min;
 
     if (!Number.isFinite(range) || range <= 0) return null;
-
-    const normalized = (now - min) / range;
-    return clamp01(normalized);
-}
-
-function extractProgressFromElement(el) {
-    if (!el) return { value: null, source: "none" };
-
-    const ariaText = el.getAttribute("aria-valuetext") || el.getAttribute("aria-label") || "";
-    const fromText = parsePercentText(ariaText);
-    if (fromText !== null) return { value: fromText, source: "text" };
-
-    const computed = getComputedStyle(el);
-    const transform = el.style.transform || computed.transform;
-    const fromTransform = parseTransformProgress(transform);
-    if (fromTransform !== null) return { value: fromTransform, source: "transform" };
-
-    const fromStyle = parseWidthPercentText(el.getAttribute("style") || el.style.width || computed.width);
-    if (fromStyle !== null) return { value: fromStyle, source: "style" };
-
-    const fromGeometry = extractProgressFromGeometry(el);
-    if (fromGeometry !== null) return { value: fromGeometry, source: "geometry" };
-
-    const fromAria = extractProgressFromAria(el);
-    if (fromAria !== null) return { value: fromAria, source: "aria" };
-
-    return { value: null, source: "none" };
+    return clamp01((now - min) / range);
 }
 
 function extractProgressFromGeometry(el) {
@@ -570,7 +565,6 @@ function extractProgressFromGeometry(el) {
     const current = el.getBoundingClientRect().width;
 
     if (total <= 0 || current <= 0 || current > total) return null;
-
     return clamp01(current / total);
 }
 
@@ -588,7 +582,6 @@ function parseWidthPercentText(text) {
         value.match(/^([\d.]+)\s*%$/);
 
     if (!match) return null;
-
     return clamp01(parseFloat(match[1]) / 100);
 }
 
@@ -607,27 +600,24 @@ function parseTransformProgress(transform) {
     return null;
 }
 
-function clamp01(num) {
-    const n = Number(num);
-    if (!Number.isFinite(n)) return null;
-    return Math.min(1, Math.max(0, n));
-}
-
 function getBestHideTarget(container) {
     return container.closest("ytd-rich-item-renderer") || container;
 }
 
 function getBestShortsHideTarget(container) {
-    return (
-        container.closest("ytd-rich-section-renderer") ||
-        container.closest("ytd-reel-shelf-renderer") ||
-        container.closest("ytd-rich-item-renderer") ||
-        container.closest("ytd-video-renderer") ||
-        container.closest("ytd-grid-video-renderer") ||
-        container.closest("ytd-compact-video-renderer") ||
-        container.closest("ytd-playlist-video-renderer") ||
-        container
-    );
+    return SHORTS_HIDE_TARGET_SELECTORS
+        .map((selector) => container.closest(selector))
+        .find(Boolean) || container;
+}
+
+function clamp01(num) {
+    return clamp(num, 0, 1);
+}
+
+function clamp(num, min, max) {
+    const n = Number(num);
+    if (!Number.isFinite(n)) return null;
+    return Math.min(max, Math.max(min, n));
 }
 
 function debounce(fn, delay = 250) {
@@ -638,41 +628,25 @@ function debounce(fn, delay = 250) {
     };
 }
 
+async function refreshPageState(overrides = {}) {
+    const settings = { ...(await getSettings()), ...overrides };
+
+    await ensurePillButton(settings.enabled);
+    applyMode(settings);
+    applyHideShortsCss(settings.hideShorts);
+    applyGridSize(settings.gridSize);
+}
+
 async function boot() {
     ensureStyles();
+    await refreshPageState();
 
-    const [enabled, threshold, gridSize, hideShorts, debugMode] = await Promise.all([
-        getEnabled(),
-        getThreshold(),
-        getGridSize(),
-        getHideShorts(),
-        getDebugMode()
-    ]);
-    await ensurePillButton(enabled);
-    applyMode(enabled, threshold, hideShorts, debugMode);
-    applyHideShortsCss(hideShorts);
-    applyGridSize(gridSize);
-
-    const debounced = debounce(async () => {
-        const [e, t, g, hs, d] = await Promise.all([
-            getEnabled(),
-            getThreshold(),
-            getGridSize(),
-            getHideShorts(),
-            getDebugMode()
-        ]);
-        await ensurePillButton(e);
-        applyMode(e, t, hs, d);
-        applyHideShortsCss(hs);
-        applyGridSize(g);
-    }, 300);
-
-    const obs = new MutationObserver(() => debounced());
+    const debouncedRefresh = debounce(() => refreshPageState(), 300);
+    const obs = new MutationObserver(() => debouncedRefresh());
     obs.observe(document.body, { childList: true, subtree: true });
 
-    document.addEventListener("yt-navigate-finish", () => debounced());
-
-    setInterval(() => debounced(), 2000);
+    document.addEventListener("yt-navigate-finish", () => debouncedRefresh());
+    setInterval(() => debouncedRefresh(), 2000);
 }
 
 boot();
