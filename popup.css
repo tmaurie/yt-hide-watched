@@ -100,6 +100,24 @@ body {
   transform: translateY(1px);
 }
 
+.footer {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  text-align: center;
+}
+
+.footer__link {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.footer__link:hover {
+  text-decoration: underline;
+}
+
 .slider {
   width: 100%;
   accent-color: var(--accent);
