@@ -1,12 +1,12 @@
 {
   "manifest_version": 3,
-  "name": "YouTube - Hide Watched",
+  "name": "TubePilot",
   "version": "0.1.1",
-  "description": "Toggle pour masquer les vidéos déjà vues sur YouTube",
+  "description": "Controle rapide pour nettoyer et personnaliser YouTube",
   "permissions": ["storage"],
   "host_permissions": ["https://www.youtube.com/*"],
   "action": {
-    "default_title": "YouTube - Hide Watched",
+    "default_title": "TubePilot",
     "default_popup": "popup.html"
   },
   "content_scripts": [

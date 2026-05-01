@@ -3,19 +3,27 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>YouTube - Hide Watched</title>
+    <title>TubePilot</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
     <main class="panel">
       <header class="panel__header">
-        <h1 class="panel__title">YouTube - Hide Watched</h1>
-        <p class="panel__subtitle">Administration rapide</p>
+        <span class="brand__mark" aria-hidden="true">
+          <span class="brand__play"></span>
+        </span>
+        <span>
+          <h1 class="panel__title">TubePilot</h1>
+          <p class="panel__subtitle">Controle rapide YouTube</p>
+        </span>
       </header>
 
-      <section class="panel__section">
+      <section class="panel__section panel__section--primary">
         <label class="row">
-          <span class="row__label">Masquer les vues</span>
+          <span>
+            <span class="row__label">Videos deja vues</span>
+            <span class="row__meta">Cache ou grise selon le mode actif</span>
+          </span>
           <span class="toggle">
             <input id="toggle-enabled" type="checkbox" />
             <span class="toggle__track" aria-hidden="true"></span>
@@ -39,34 +47,41 @@
             value="0.8"
           />
         </label>
-        <p class="hint">Cache seulement si la barre rouge depasse le seuil.</p>
+        <p class="hint">Considere une video vue quand la barre rouge depasse ce seuil.</p>
       </section>
 
       <section class="panel__section">
         <label class="row">
-          <span class="row__label">Masquer les Shorts</span>
+          <span>
+            <span class="row__label">Masquer les Shorts</span>
+            <span class="row__meta">Retire les blocs Shorts de YouTube</span>
+          </span>
           <span class="toggle">
             <input id="toggle-shorts" type="checkbox" />
             <span class="toggle__track" aria-hidden="true"></span>
           </span>
         </label>
-        <p class="hint">Masque les videos Shorts partout sur YouTube.</p>
       </section>
 
       <section class="panel__section">
         <label class="row">
-          <span class="row__label">Mode debug</span>
+          <span>
+            <span class="row__label">Mode debug</span>
+            <span class="row__meta">Affiche le pourcentage detecte</span>
+          </span>
           <span class="toggle">
             <input id="toggle-debug" type="checkbox" />
             <span class="toggle__track" aria-hidden="true"></span>
           </span>
         </label>
-        <p class="hint">Affiche le pourcentage de lecture detecte sur les videos.</p>
       </section>
 
       <section class="panel__section">
         <label class="row row--stack" for="select-grid-size">
-          <span class="row__label">Videos par ligne</span>
+          <span>
+            <span class="row__label">Videos par ligne</span>
+            <span class="row__meta">Grille d'accueil</span>
+          </span>
           <select id="select-grid-size" class="select">
             <option value="4">4</option>
             <option value="5">5</option>
@@ -75,14 +90,12 @@
             <option value="8">8</option>
           </select>
         </label>
-        <p class="hint">Applique uniquement sur la grille d'accueil.</p>
       </section>
 
       <section class="panel__section panel__section--footer">
         <button id="reset-settings" class="button" type="button">
-          Reset reglages
+          Reinitialiser
         </button>
-        <p class="hint">Remet les valeurs par defaut : seuil 80%, grille 4, Shorts off.</p>
       </section>
 
       <footer class="footer">

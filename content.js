@@ -3,7 +3,8 @@ const STORAGE_KEYS = {
     threshold: "yt_hide_watched_threshold",
     gridSize: "yt_hide_watched_grid_size",
     hideShorts: "yt_hide_watched_hide_shorts",
-    debugMode: "yt_hide_watched_debug_mode"
+    debugMode: "yt_hide_watched_debug_mode",
+    manualWatchedIds: "yt_hide_watched_manual_watched_ids"
 };
 
 const TOPBAR_BTN_ID = "yt-hide-watched-pill-btn";
@@ -20,6 +21,7 @@ const CLASSES = {
     dim: "yt-hide-watched__dim",
     badge: "yt-hide-watched__badge",
     debugBadge: "yt-hide-watched__debug-badge",
+    markButton: "yt-hide-watched__mark-button",
     button: "yt-hide-watched__pill",
     topbarControl: "yt-hide-watched__topbar-control",
     menu: "yt-hide-watched__menu",
@@ -103,17 +105,52 @@ function storageSet(values) {
     return new Promise((resolve) => chrome.storage.sync.set(values, () => resolve()));
 }
 
+function localStorageGet(keys) {
+    return new Promise((resolve) => chrome.storage.local.get(keys, resolve));
+}
+
+function localStorageSet(values) {
+    return new Promise((resolve) => chrome.storage.local.set(values, () => resolve()));
+}
+
+async function getManualWatchedIds() {
+    const res = await localStorageGet([STORAGE_KEYS.manualWatchedIds]);
+    return Array.isArray(res[STORAGE_KEYS.manualWatchedIds]) ? res[STORAGE_KEYS.manualWatchedIds] : [];
+}
+
+async function setManualWatched(videoId, watched) {
+    if (!videoId) return;
+
+    const ids = new Set(await getManualWatchedIds());
+    if (watched) {
+        ids.add(videoId);
+    } else {
+        ids.delete(videoId);
+    }
+
+    await localStorageSet({ [STORAGE_KEYS.manualWatchedIds]: [...ids] });
+}
+
 async function getSettings() {
-    const res = await storageGet(Object.values(STORAGE_KEYS));
+    const syncKeys = Object.values(STORAGE_KEYS).filter((key) => key !== STORAGE_KEYS.manualWatchedIds);
+    const [res, localRes] = await Promise.all([
+        storageGet(syncKeys),
+        localStorageGet([STORAGE_KEYS.manualWatchedIds])
+    ]);
     const storedThreshold = parseFloat(res[STORAGE_KEYS.threshold]);
     const storedGridSize = parseInt(res[STORAGE_KEYS.gridSize], 10);
+    const manualWatchedIds = Array.isArray(localRes[STORAGE_KEYS.manualWatchedIds])
+        ? localRes[STORAGE_KEYS.manualWatchedIds]
+        : [];
 
     return {
         enabled: Boolean(res[STORAGE_KEYS.enabled]),
         threshold: clamp01(storedThreshold) ?? DEFAULTS.threshold,
         gridSize: clamp(storedGridSize, 4, 8) ?? DEFAULTS.gridSize,
         hideShorts: Boolean(res[STORAGE_KEYS.hideShorts]),
-        debugMode: Boolean(res[STORAGE_KEYS.debugMode])
+        debugMode: Boolean(res[STORAGE_KEYS.debugMode]),
+        manualWatchedIds,
+        manualWatchedSet: new Set(manualWatchedIds)
     };
 }
 
@@ -175,7 +212,7 @@ function buildQuickMenu(settings) {
 
     const title = document.createElement("div");
     title.className = CLASSES.menuLabel;
-    title.textContent = "YouTube Hide Watched";
+    title.textContent = "TubePilot";
     menu.appendChild(title);
 
     const modeButton = document.createElement("button");
@@ -332,9 +369,9 @@ function updateQuickMenu(settings, menu = document.getElementById(TOPBAR_MENU_ID
     if (shortsValue) shortsValue.textContent = settings.hideShorts ? "on" : "off";
 }
 
-function applyMode({ enabled, threshold, hideShorts, debugMode }) {
+function applyMode({ enabled, threshold, hideShorts, debugMode, manualWatchedSet }) {
     document.querySelectorAll(CARD_CONTAINERS).forEach((container) => {
-        const card = analyzeCard(container, threshold);
+        const card = analyzeCard(container, threshold, manualWatchedSet);
         if (!(card.target instanceof HTMLElement)) return;
 
         if (hideShorts && card.isShort) {
@@ -352,17 +389,20 @@ function applyMode({ enabled, threshold, hideShorts, debugMode }) {
             return;
         }
 
+        ensureManualMarkButton(card.target, card);
         applyVisibleState(card.target, card, debugMode);
     });
 }
 
-function analyzeCard(container, threshold) {
+function analyzeCard(container, threshold, manualWatchedSet = new Set()) {
     const isShort = isShortVideo(container);
+    const videoId = getVideoId(container);
+    const manuallyWatched = Boolean(videoId && manualWatchedSet.has(videoId));
     const progressDetails = getWatchProgressDetails(container);
-    const watched = isWatchedWithin(container, threshold, progressDetails.value);
+    const watched = manuallyWatched || isWatchedWithin(container, threshold, progressDetails.value);
     const target = isShort ? getBestShortsHideTarget(container) : getBestHideTarget(container);
 
-    return { container, target, isShort, threshold, progressDetails, watched };
+    return { container, target, isShort, videoId, manuallyWatched, threshold, progressDetails, watched };
 }
 
 function applyHiddenState(target, reason) {
@@ -370,6 +410,7 @@ function applyHiddenState(target, reason) {
     target.classList.remove(CLASSES.dim);
     removeBadge(target, CLASSES.badge);
     removeBadge(target, CLASSES.debugBadge);
+    removeBadge(target, CLASSES.markButton);
     target.setAttribute("data-yt-hide-watched", reason);
 }
 
@@ -377,6 +418,7 @@ function applyDimmedState(target, card, debugMode) {
     target.classList.remove(CLASSES.hidden);
     target.classList.add(CLASSES.dim);
     ensureWatchedBadge(target);
+    ensureManualMarkButton(target, card);
     updateDebugBadge(target, card, debugMode);
     target.setAttribute("data-yt-hide-watched", "dim");
 }
@@ -402,6 +444,40 @@ function ensureWatchedBadge(targetCard) {
     anchor.appendChild(badge);
 }
 
+function ensureManualMarkButton(targetCard, card) {
+    if (!card.videoId || card.isShort) {
+        removeBadge(targetCard, CLASSES.markButton);
+        return;
+    }
+
+    const anchor = getBadgeAnchor(targetCard);
+    if (!(anchor instanceof HTMLElement)) return;
+
+    ensureRelativePosition(anchor);
+
+    const button = ensureChild(anchor, CLASSES.markButton, "button");
+    button.type = "button";
+    button.textContent = card.manuallyWatched ? "Annuler vue" : "Marquer vue";
+    button.setAttribute(
+        "aria-label",
+        card.manuallyWatched ? "Annuler le marquage comme vue" : "Marquer cette video comme vue"
+    );
+    button.dataset.marked = card.manuallyWatched ? "true" : "false";
+    button.dataset.videoId = card.videoId;
+
+    if (button.dataset.bound === "true") return;
+
+    button.dataset.bound = "true";
+    button.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const shouldMark = button.dataset.marked !== "true";
+        await setManualWatched(button.dataset.videoId, shouldMark);
+        await refreshPageState();
+    });
+}
+
 function updateDebugBadge(targetCard, card, debugMode) {
     if (!debugMode) {
         removeBadge(targetCard, CLASSES.debugBadge);
@@ -414,19 +490,19 @@ function updateDebugBadge(targetCard, card, debugMode) {
     ensureRelativePosition(anchor);
 
     const badge = ensureChild(anchor, CLASSES.debugBadge);
-    const progress = card.progressDetails.value;
+    const progress = card.manuallyWatched ? 1 : card.progressDetails.value;
     const percent = progress === null ? "??" : `${Math.round(progress * 100)}%`;
     const thresholdPercent = `${Math.round(card.threshold * 100)}%`;
-    const source = card.progressDetails.source || "none";
+    const source = card.manuallyWatched ? "manual" : card.progressDetails.source || "none";
 
     badge.textContent = card.isShort ? `Short | ${percent} | ${source}` : `${percent} / ${thresholdPercent} | ${source}`;
     badge.dataset.state = card.isShort ? "short" : progress !== null && progress >= card.threshold ? "watched" : "visible";
 }
 
-function ensureChild(parent, className) {
+function ensureChild(parent, className, tagName = "div") {
     let child = parent.querySelector(`.${className}`);
     if (!child) {
-        child = document.createElement("div");
+        child = document.createElement(tagName);
         child.className = className;
         parent.appendChild(child);
     }
@@ -579,6 +655,40 @@ function ensureStyles() {
       font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
     }
 
+    .${CLASSES.markButton}{
+      position: absolute;
+      right: 8px;
+      top: 8px;
+      z-index: 5;
+      padding: 6px 8px;
+      border: 0;
+      border-radius: 999px;
+      background: rgba(15,15,15,0.82);
+      color: #fff;
+      font: 700 11px/1 Roboto, Arial, sans-serif;
+      cursor: pointer;
+      opacity: 0;
+      transform: translateY(-3px);
+      transition: opacity 120ms ease, transform 120ms ease, background 120ms ease;
+    }
+    ytd-rich-item-renderer:hover .${CLASSES.markButton},
+    ytd-rich-grid-media:hover .${CLASSES.markButton},
+    ytd-video-renderer:hover .${CLASSES.markButton},
+    ytd-grid-video-renderer:hover .${CLASSES.markButton},
+    ytd-compact-video-renderer:hover .${CLASSES.markButton},
+    ytd-playlist-video-renderer:hover .${CLASSES.markButton},
+    .${CLASSES.markButton}:focus-visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .${CLASSES.markButton}:hover {
+      background: rgba(227,82,56,0.95);
+    }
+    .${CLASSES.markButton}[data-marked="true"] {
+      opacity: 1;
+      background: rgba(227,82,56,0.9);
+    }
+
     .${CLASSES.debugBadge}{
       position: absolute;
       right: 8px;
@@ -668,6 +778,26 @@ function hasWatchedMarker(container) {
 function isShortVideo(container) {
     if (container.closest("ytd-reel-item-renderer")) return true;
     return Boolean(container.querySelector(SHORTS_LINK_SELECTOR));
+}
+
+function getVideoId(container) {
+    const link = container.querySelector(
+        "a[href*='watch?v='], a[href^='/shorts/'], a[href*='youtube.com/shorts/']"
+    );
+    const href = link?.getAttribute("href");
+    if (!href) return null;
+
+    try {
+        const url = new URL(href, location.origin);
+        if (url.pathname === "/watch") return url.searchParams.get("v");
+
+        const shortsMatch = url.pathname.match(/^\/shorts\/([^/?#]+)/);
+        if (shortsMatch) return `shorts:${shortsMatch[1]}`;
+    } catch (_) {
+        return null;
+    }
+
+    return null;
 }
 
 function getWatchProgress(container) {
